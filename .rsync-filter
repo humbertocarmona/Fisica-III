@@ -1,0 +1,24 @@
+# Exclude specific directory
+- /.git/
+- **/.vscode/
+- **/logs/
+- **/env/
+- **/.env/
+# Exclude specific file
+- **Manifest.toml
+- **__pycache__
+- *.tmp
+- **.aux
+- **.bbl
+- **.bcf
+- **.blg
+- **.fdb_latexmk
+- **.fls
+- **.log
+- **.out
+- **.run.xml
+- **.synctex.gz
+- **.toc
+
+
+
