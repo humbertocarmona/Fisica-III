@@ -10,7 +10,8 @@ function compute_field_lines(
 	max_steps = 360,
 	step_size::Float32 = 0.05f0,
 	α_curvature::Float32 = 1.0f0,
-	loop_tolerance::Float32 = 0.01f0)
+	loop_tolerance::Float32 = 0.01f0,
+)
 
 	# Initialize the field lines
 	field_lines_set = Vector{Point3f}[]
@@ -18,35 +19,39 @@ function compute_field_lines(
 
 	k = 1
 	for r0 in start_points
-		field_line_fwd = [r0]
-		field_line_bwd = [r0]
+		field_line_fwd = [r0, r0]
+		field_line_bwd = [r0, r0]
 
 		r_fwd, r_bwd = r0, r0
 		F0 = field_function(r0)
 
-		field_vector_fwd = [F0]
-		field_vector_bwd = [F0]
+		field_vector_fwd = [F0, F0]
+		field_vector_bwd = [F0, F0]
 
-		i = 1
 		closed_loop = false
 		touches_ends = false
-
+		i = 1
 		while (i < max_steps) && !closed_loop && !touches_ends
 			Field_fwd = field_function(r_fwd)
 			Field_bwd = field_function(r_bwd)
 
 			Field_fwd_norm = norm(Field_fwd)
 			Field_bwd_norm = norm(Field_bwd)
+
 			zero_norms = [
 				isapprox(Field_fwd_norm, 0.0, atol = 1e-10)
 				isapprox(Field_bwd_norm, 0.0, atol = 1e-10)]
+
 			if ~any(zero_norms)
+				κ_fwd = curvature(field_line_fwd, i - 1)
+				κ_bwd = curvature(field_line_bwd, i - 1)
+
+				# println("$i $κ_fwd $κ_bwd, $low_curvature")
+
 				Field_fwd_hat = Field_fwd / Field_fwd_norm
 				Field_bwd_hat = Field_bwd / Field_bwd_norm
 
 				# Adaptive step size: Reduce step size in high-curvature areas
-				κ_fwd = curvature(field_line_fwd, i - 1)
-				κ_bwd = curvature(field_line_bwd, i - 1)
 
 				δl_fwd = step_size / (1 + α_curvature * κ_fwd)
 				δl_bwd = step_size / (1 + α_curvature * κ_bwd)
@@ -59,6 +64,7 @@ function compute_field_lines(
 				push!(field_line_bwd, r_bwd_new)
 				push!(field_vector_fwd, Field_fwd)
 				push!(field_vector_bwd, Field_bwd)
+				i += 1
 
 				# Check if the trajectory returns close to the start point
 				err_fwd = norm(r_fwd_new - r0)
@@ -81,23 +87,21 @@ function compute_field_lines(
 						push!(field_vector_bwd, F0)
 						println("$k touched end at $i")
 					end
+
 					if i >= max_steps
-						println("$k Max steps reached $i")
+						println("$k reached max steps at $max_steps")
 					end
 				end
-
 				r_fwd, r_bwd = r_fwd_new, r_bwd_new
 			end
-			i += 1
-			if i == max_steps
-				println("$k reached max steps at $max_steps")
-			end
 		end
+
 		k = k + 1
 
 		# Merge forward and backward trajectories into a single closed loop
 		field_line = vcat(reverse(field_line_bwd), field_line_fwd)
 		field_vectors = vcat(reverse(field_vector_bwd), field_vector_fwd)
+
 		push!(field_lines_set, field_line)
 		push!(field_vetor_set, field_vectors)
 	end
@@ -185,14 +189,15 @@ function plot_field_lines(
 				idx = findfirst(z -> isapprox(abs(z), 0.0; atol = 0.01), z_line)
 				for i in [idx]
 					if ~isnothing(i)
+						i > 200
 						i = max.(i, 2)
 						i = min.(i, length(z_line) - 1)
 						push!(arrows_indexes, i)
 					end
 				end
-				idx = all(z -> isapprox(abs(z), 0.0; atol = 0.01), z_line)
+				idx = findall(z -> isapprox(abs(z), 0.0; atol = 0.01), z_line)
 				for i in idx
-					if ~isnothing(i)
+					if ~isnothing(i) && ~(i in arrows_indexes) && i > 200
 						i = max.(i, 2)
 						i = min.(i, length(z_line) - 1)
 						push!(arrows_indexes, i)
@@ -200,27 +205,29 @@ function plot_field_lines(
 				end
 			end
 
-			ps = []
-			vs = []
-			for n in arrows_indexes
-				p = line[n]
-				v = Point3f(x_vel[n], y_vel[n], z_vel[n])
-				push!(ps, Point3f(p))
-				push!(vs, Point3f(v))
+			if length(arrows_indexes) > 0
+				ps = []
+				vs = []
+				for n in arrows_indexes
+					# p = line[n]
+					p = Point3f(x_line[n], y_line[n], 0.0f0)
+					v = Point3f(x_vel[n], y_vel[n], z_vel[n])
+					push!(ps, Point3f(p))
+					push!(vs, Point3f(v))
+				end
+				arrows!(ax, ps, vs,
+					fxaa = true, # turn on anti-aliasing
+					linewidth = 0.0,
+					arrowsize = Vec3f(0.015, 0.015, 0.03),
+					align = :center,
+					color = F_norm[arrows_indexes],
+					colormap = colors,
+				)
 			end
-			arrows!(ax, ps, vs,
-				fxaa = true, # turn on anti-aliasing
-				linewidth = 0.0,
-				arrowsize = Vec3f(0.015, 0.015, 0.03),
-				align = :center,
-				color = F_norm[arrows_indexes],
-				colormap = colors,
-			)
 		end
 	end
 
 	if ret
-		println("here $(typeof(fig))")
 		return fig, ax
 	else
 		return nothing

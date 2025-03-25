@@ -99,9 +99,9 @@ function field_lines_point_charges(;
 		compute_field_lines(
 			point_charges_,
 			start_points;
-			max_steps = 7000,
+			max_steps = 5000,
 			step_size = 0.005f0,
-			loop_tolerance = 0.05f0,
+			loop_tolerance = 0.001f0,
 		)
 
 
@@ -178,26 +178,30 @@ display(fig)
 # # Example: Electric field lines of point charges
 
 pos = [
-	Point3f(0.0, 0.0, -1.0),
-	Point3f(0.0, 0.0, 1.0),
+	Point3f(0.0, 0.0, -1),
+	Point3f(0.0, 0.0, 1),
 ];
-q = [1.0e-9, -1.0e-9];
+q = [1.0e-10, -1.0e-10];
 arrow_idx = "z=0"
 
-start_points_E = [
-	Point3f(0.2 * cos(a), 0.0, 1 + 0.2 * sin(a)) for a in 0:2π/36:2π-2π/36
+N = 18
+c = [
+	Point3f(0.5 * cos(a), 0.0, 0.5 * sin(a)) for a in 0:2π/N:2π-2π/N
 ];
 
-start_points_E = vcat(
-	start_points_E,
-	[
-		Point3f(0.2 * cos(a), 0.0, -1 + 0.2 * sin(a)) for a in 0:2π/36:2π-2π/36
-	],
-);
+start_points_E = c .+ pos[1]; 
+for i in 2:2
+	start_points_E = vcat(
+		start_points_E,
+		c .+ pos[i], 
+	);
+end 
+
 
 lines_point_charges, E_field, charges = field_lines_point_charges(N = 20, q = q, pos = pos, r = 0.05,
 	start_points = start_points_E);
 # %%  --------------------------------------------------------------------------
+draw_arrows = true
 
 
 fig, ax = plot_field_lines(lines_point_charges,E_field; draw_arrows = draw_arrows,
@@ -206,5 +210,5 @@ arrow_idx = arrow_idx)
 for m in charges
 	mesh!(ax, m)
 end
-limits!(ax, -1, 1, -1, 1, -2, 2)
+limits!(ax, -2, 2, -1, 1, -2.5, 2.5)
 display(fig)

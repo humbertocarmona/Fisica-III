@@ -63,7 +63,7 @@ function curvature(line_points, i)::Float32
 	if i < 2
 		return 0.0
 	end
-	@assert n > i
+	@assert n > i "found  $n > $i"
 
 	p1, p2, p3 = line_points[i-1], line_points[i], line_points[i+1]
 
@@ -95,5 +95,6 @@ function curvature(line_points, i)::Float32
 	# Compute curvature κ = |dT/ds|
 	# κ = norm(dT) / ds
 
+	κ = min(κ, 100.0)
 	return Float32(κ)
 end
