@@ -34,37 +34,35 @@ end
 
 using LinearAlgebra
 
-function uniform_disk(N::Int; 
-		R::Float64=1.0, 
-		n_hat::Vector{Float64}= [0.0, 0.0, 1.0],
-		center::Vector{Float64}=[0.0, 0.0, 0.0], 
-		seed::Int=1)
-
+function uniform_disk(N::Int;
+	R::Float64 = 1.0,
+	n_hat::Vector{Float64} = [0.0, 0.0, 1.0],
+	center::Vector{Float64} = [0.0, 0.0, 0.0],
+	seed::Int = 1)
 	Random.seed!(seed)
 
-    # Step 1: Create orthonormal basis with n̂ as the new z-axis
-    z_axis = normalize(n_hat)
-    # Pick arbitrary vector not parallel to n̂
-    tmp = abs(z_axis[1]) < 0.99 ? Float64[1.0, 0.0, 0.0] : Float64[0.0, 1.0, 0.0]
-    x_axis = normalize(cross(tmp, z_axis))
-    y_axis = cross(z_axis, x_axis)
+	# Step 1: Create orthonormal basis with n̂ as the new z-axis
+	z_axis = normalize(n_hat)
+	# Pick arbitrary vector not parallel to n̂
+	tmp = abs(z_axis[1]) < 0.99 ? Float64[1.0, 0.0, 0.0] : Float64[0.0, 1.0, 0.0]
+	x_axis = normalize(cross(tmp, z_axis))
+	y_axis = cross(z_axis, x_axis)
 
-    # Rotation matrix: columns are the new axes
-    rot = hcat(x_axis, y_axis, z_axis)
+	# Rotation matrix: columns are the new axes
+	rot = hcat(x_axis, y_axis, z_axis)
 
-    # Step 2: Generate points
-    
+	# Step 2: Generate points
+
 	r = rand(N)
 	θ = 2π * rand(N)
 	x = R * sqrt.(r) .* cos.(θ)
 	y = R * sqrt.(r) .* sin.(θ)
 	z = zeros(N)
 
-	points = [rot*[x[i], y[i], z[i]] for i in 1:N]
-	points = [p .+ center for p in points]	
+	points = [rot * [x[i], y[i], z[i]] for i in 1:N]
+	points = [p .+ center for p in points]
 	return points
 end
-
 
 # Function to compute the curvature of a line at a given point
 function curvature(line_points, i)
@@ -79,24 +77,30 @@ function curvature(line_points, i)
 	# Compute velocity vectors (first derivative)
 	v1 = p2 .- p1
 	v2 = p3 .- p2
-	norm_v1 = norm(v1)
-	norm_v2 = norm(v2)
-	# Avoid division by zero
-	if isapprox(norm_v1, 0.0, atol=0.01) || isapprox(norm_v2, 0.0, atol=0.01)
+	dv = v2 - v1
+	ds = (v2 + v1) / 2
+	ds2 = dot(ds, ds)
+	if isapprox(ds2, 0.0, atol = 1e-4)
 		return 0.0
 	end
-	# Compute tangent vectors
-	T1 = v1 / norm(v1)
-	T2 = v2 / norm(v2)
 
-	# Compute the change in tangent vector (numerical derivative)
-	dT = T2 - T1
+	κ = norm(dv) / ds2
 
-	# Compute step size (arc length approximation)
-	ds = norm(v2)
-
+	# norm_v1 = norm(v1)
+	# # Avoid division by zero
+	# norm_v2 = norm(v2)
+	# if isapprox(norm_v1, 0.0, atol = 1e-4) || isapprox(norm_v2, 0.0, atol = 1e-4)
+	# 	return 0.0
+	# end
+	# Compute tangent unitary vectors
+	# v1_hat = v1 / norm_v1
+	# v2_hat = v2 / norm_v2
+	# # Compute the change in tangent vector (numerical derivative)
+	# dT = v2_hat - v1_hat
+	# # Compute step size (arc length approximation)
+	# ds = norm_v2
 	# Compute curvature κ = |dT/ds|
-	κ = norm(dT) / ds
+	# κ = norm(dT) / ds
 
 	return κ
 end
@@ -106,9 +110,8 @@ function compute_field_lines(
 	field_function::Function,
 	start_points;
 	max_steps = 360,
-	step_size = 0.005, α_curvature = 1.0,
-	loop_tolerance = 0.01,
-	limits = (-1000, 1000, -1000, 1000, -1000, 1000))
+	step_size = 0.05, α_curvature = 1.0,
+	loop_tolerance = 0.01)
 
 	# Initialize the field lines
 	field_lines_all = Vector{Vector{Float64}}[]
@@ -120,56 +123,62 @@ function compute_field_lines(
 
 		i = 1
 		err = 1.0
-		off_limits = false
+		touches_ends = false
 
-		while (i < max_steps) && (err > loop_tolerance) && !off_limits
+		while (i < max_steps) && (err > loop_tolerance) && !touches_ends
 			Field_fwd = field_function(r_fwd...)
 			Field_bwd = field_function(r_bwd...)
 
 			Field_fwd_norm, Field_bwd_norm = norm(Field_fwd), norm(Field_bwd)
+			zero_norms =
+				isapprox(Field_fwd_norm, 0.0, atol = 1e-10) ||
+				isapprox(Field_bwd_norm, 0.0, atol = 1e-10)
+			if ~zero_norms
+				Field_fwd_hat = Field_fwd / Field_fwd_norm
+				Field_bwd_hat = Field_bwd / Field_bwd_norm
 
-			if Field_fwd_norm ≈ 0 || Field_bwd_norm ≈ 0
-				break  # Avoid singularities
-			end
-			Field_fwd_hat = Field_fwd / Field_fwd_norm
-			Field_bwd_hat = Field_bwd / Field_bwd_norm
+				# Adaptive step size: Reduce step size in high-curvature areas
+				κ_fwd = curvature(trajectory_forward, i - 1)
+				κ_bwd = curvature(trajectory_backward, i - 1)
 
-			# Adaptive step size: Reduce step size in high-curvature areas
-			κ_fwd = curvature(trajectory_forward, i - 1)
-			κ_bwd = curvature(trajectory_backward, i - 1)
 
-			δl_fwd = step_size / (1 + α_curvature * κ_fwd)
-			δl_bwd = step_size / (1 + α_curvature * κ_bwd)
+				δl_fwd = step_size / (1 + α_curvature * κ_fwd)
+				δl_bwd = step_size / (1 + α_curvature * κ_bwd)
 
-			# Move along the field line in both forward and backward directions
-			r_fwd_new = r_fwd + Field_fwd_hat * δl_fwd
-			r_bwd_new = r_bwd - Field_bwd_hat * δl_bwd
+				# Move along the field line in both forward and backward directions
+				r_fwd_new = r_fwd + Field_fwd_hat * δl_fwd
+				r_bwd_new = r_bwd - Field_bwd_hat * δl_bwd
 
-			off_limits =
-				r_fwd_new[3] > limits[6] || r_fwd_new[3] < limits[5] ||
-				r_fwd_new[2] > limits[4] || r_fwd_new[2] < limits[3] ||
-				r_fwd_new[1] > limits[2] || r_fwd_new[1] < limits[1]
+				push!(trajectory_forward, r_fwd_new)
+				push!(trajectory_backward, r_bwd_new)
 
-			push!(trajectory_forward, r_fwd_new)
-			push!(trajectory_backward, r_bwd_new)
-
-			# Check if the trajectory returns close to the start point
-			err_fwd = norm(r_fwd_new - r0)
-			err_bwd = norm(r_bwd_new - r0)
-			if i > 50
-				err = min(err_fwd, err_bwd)
-				if err < loop_tolerance
-					push!(trajectory_forward, r0)
-					push!(trajectory_backward, r0)
+				# Check if the trajectory returns close to the start point
+				err_fwd = norm(r_fwd_new - r0)
+				err_bwd = norm(r_bwd_new - r0)
+				if i > 50
+					err = min(err_fwd, err_bwd)
+					if err < loop_tolerance
+						push!(trajectory_forward, r0)
+						push!(trajectory_backward, r0)
+						println("Loop closed at $i")
+					end
+					if norm(r_fwd_new - r_bwd_new) < loop_tolerance
+						touches_ends = true
+						push!(trajectory_forward, r_bwd_new)
+						push!(trajectory_backward, r_fwd_new)
+						println("Touches ends at $i")
+					end
+					if i >= max_steps
+						println("Max steps reached $i")
+					end
 				end
-				if i >= max_steps
-					println("Max steps reached $i")
-				end
+
+				r_fwd, r_bwd = r_fwd_new, r_bwd_new
 			end
-
-			r_fwd, r_bwd = r_fwd_new, r_bwd_new
-
 			i += 1
+			if i == max_steps
+				println("Max steps reached $max_steps")
+			end
 		end
 
 		# Merge forward and backward trajectories into a single closed loop
@@ -204,19 +213,25 @@ function plot_field_lines(
 		line_matrix = hcat(line...)  # Converts Vector{Vector{Float64}} to 3 × N matrix
 		vel = line_matrix[:, 2:end] - line_matrix[:, 1:end-1]
 		vel = hcat(vel, vel[:, end])  # Repeat last column
-		vel_norm = norm.(eachcol(vel))  # Compute norm of each column
-		vel_norm = max.(vel_norm, 1e-8)  # Avoid division by zero
 
-		vel_norm = (vel_norm .- minimum(vel_norm)) ./ (maximum(vel_norm) - minimum(vel_norm))
+		r0 = line_matrix[:, 1]
+		xpos = line_matrix[1, :] .- r0[1]
+		ypos = line_matrix[2, :] .- r0[2]
+		zpos = line_matrix[3, :] .- r0[3]
 
-		colors = get(ColorSchemes.turbo, range(0, stop = 1, length = size(vel_norm, 1) + 1))
+		# dist = sqrt.(xpos .^ 2 .+ ypos .^ 2 .+ zpos .^ 2)
+		dist = xpos .^ 2
+		dist = (dist .- minimum(dist)) / (maximum(dist) - minimum(dist))
+
+		colors = get(ColorSchemes.turbo, range(0, stop = 1, length = size(dist, 1)))
 
 		lines!(ax, line_matrix[1, :], line_matrix[2, :], line_matrix[3, :],
-			color = vel_norm,
-			linewidth = 2.0, colormap = :turbo)
+			color = dist,
+			linewidth = 2.0,
+			colormap = :turbo)
 
 		if draw_arrows
-			if isnothing(arrow_idx) || arrow_idx == "min z"
+			if isnothing(arrow_idx) || arrow_idx == "min vz"
 				vel_z = vel[3, :]
 				idx = argmin(vel_z)
 				idx = max(idx, 2)
@@ -249,23 +264,17 @@ function plot_field_lines(
 			ps = []
 			vs = []
 			for n in arrows_indexes
-				# p1 = line[n-1]
-				# p2 = line[n+1]
 				p = line[n]
-				# v = p2 - p1
 				v = vel[:, n]
-				# norm_v = norm(v)
-				# if norm_v > 0
 				push!(ps, Point3f(p))
 				push!(vs, Point3f(v))
-				# end
 			end
 			arrows!(ax, ps, vs,
 				fxaa = true, # turn on anti-aliasing
 				linewidth = 0.0,
-				arrowsize = Vec3f(0.02, 0.02, 0.035),
+				arrowsize = Vec3f(0.01, 0.01, 0.025),
 				align = :center,
-				color = colors[idx],
+				color = colors[1],
 			)
 		end
 	end
@@ -431,7 +440,6 @@ function plot_current_loop(;
 	arrow_idx = nothing,
 	start_points = nothing,
 	draw_arrows = true)
-
 	if isa(I, Number)
 		I = fill(I, length(z_pos))
 	end
@@ -440,26 +448,22 @@ function plot_current_loop(;
 	end
 
 	if isnothing(start_points)
-		start_points = uniform_disk(N; 
-		R = 0.9*R[1], 
-		n_hat = [0, 0.0, 1.0],
-		center = [0.0, 0.0, z_pos[1]])
+		start_points = uniform_disk(N;
+			R = 0.9 * R[1],
+			n_hat = [0, 0.0, 1.0],
+			center = [0.0, 0.0, z_pos[1]])
 	end
 
-
-
 	current_loops_(x, y, z) = current_loops(x, y, z, I = I, R = R, z_pos = z_pos)
-
 
 	field_lines = compute_field_lines(
 		current_loops_,
 		start_points;
-		max_steps = 2500,
-		step_size = 0.001,
-		loop_tolerance = 0.01,
+		max_steps = 7000,
+		step_size = 0.005,
+		loop_tolerance = 0.05,
 	)
 
-	
 	α = range(0, 2π, length = 360)
 	loop_outline = []
 	for (r, z) in zip(R, z_pos)
@@ -470,14 +474,12 @@ function plot_current_loop(;
 		push!(loop_outline, loop)
 	end
 
-
 	fig, ax = plot_field_lines(
 		field_lines,
 		loop_outline = loop_outline,
 		draw_arrows = draw_arrows,
 		arrow_idx = "z=0",
 	)
-
 
 	display(fig)
 
@@ -524,8 +526,9 @@ function plot_point_charges(;
 		compute_field_lines(
 			point_charges_,
 			start_points;
-			max_steps = 5000,
-			step_size = 0.01,
+			max_steps = 7000,
+			step_size = 0.005,
+			loop_tolerance = 0.05
 		)
 	push!(field_lines_set, f_lines)
 
@@ -533,7 +536,7 @@ function plot_point_charges(;
 		draw_arrows = true,
 		arrow_idx = arrow_idx)
 
-	for (p, c) in zip(pos, [:blue, :red])
+	for (p, qi) in zip(pos, q)
 		# Plot the sphere surface
 		# Reduce quality of sphere
 		s = Tessellation(Sphere(Point3f(p), 0.1f0), 12)
@@ -546,6 +549,8 @@ function plot_point_charges(;
 		FT = eltype(fs)
 		N = length(fs)
 		# cs = FaceView(rand(RGBf, N), [FT(i) for i in 1:N])
+		qi > 0 ? c = RGBf(1, 0, 0) : c = RGBf(0, 0, 1)
+
 		cs = FaceView(fill(c, N), [FT(i) for i in 1:N])
 
 		# generate normals per face (this creates a FaceView as well)
@@ -562,22 +567,24 @@ end
 
 # %%  --------------------------------------------------------------------------
 # # Example: Magnetic field lines of a circular current loop
-z = range(-1, 1, length = 11) |> collect
-z = [0.0]
+z = range(-0.1, 0.1, length = 3) |> collect;
+z = [0.0];
 
-start_points = [[0.9 * cos(a), 0.9 * sin(a), 0.0] for a in 0:2π/36:2π-2π/36]
-start_points = vcat(start_points, 
-	[[0.8 * cos(a), 0.8 * sin(a), 0.0] for a in 0:2π/36:2π-2π/36])
-start_points = vcat(start_points, 
-	[[0.7 * cos(a), 0.7 * sin(a), 0.0] for a in 0:2π/18:2π-2π/18])
+start_points = [[0.9 * cos(a), 0.9 * sin(a), 0.0] for a in 0:2π/18:2π-2π/18];
+start_points = vcat(start_points,
+	[[0.7 * cos(a), 0.7 * sin(a), 0.0] for a in 0:2π/18:2π-2π/18]);
+start_points = vcat(start_points,
+	[[0.5 * cos(a), 0.5 * sin(a), 0.0] for a in 0:2π/18:2π-2π/18]);
+start_points = vcat(start_points,
+	[[0.3 * cos(a), 0.3 * sin(a), 0.0] for a in 0:2π/18:2π-2π/18]);
 
-x= LinRange(-0.9, 0.9, 19)	
-y = zeros(19)
-z = zeros(19)
-start_points = [Point3f(x[i], y[i], z[i]) for i in 1:19]
-fig, ax = plot_current_loop(N = 100, I = 1.0, R = 1.0, z_pos = z, draw_arrows = false,
-start_points=start_points)
-# limits!(ax, -1.5, 1.5, -1.5, 1.5, -2, 2)
+xi = LinRange(-0.9, 0.9, 19);
+yi = zeros(19);
+zi = zeros(19);
+start_points = [Point3f(xi[i], yi[i], zi[i]) for i in 1:19];
+fig, ax = plot_current_loop(N = 100, I = 1.0, R = 1.0, z_pos = z, draw_arrows = true,
+	start_points = start_points)
+limits!(ax, -1.5, 1.5, -1.5, 1.5, -2, 2)
 
 # %%  --------------------------------------------------------------------------
 # # Example: Electric field lines of point charges
@@ -585,20 +592,20 @@ pos = [
 	[0.0, 0.0, -1.0],
 	[0.0, 0.0, 1.0],
 ];
-q = [-1.0, 1.0];
+q = [1.0, -1.0];
 
 start_points = Vector{Float64}[
 	[0.2 * cos(a), 0.0, 1 + 0.2 * sin(a)] for a in 0:2π/36:2π-2π/36
-]
+];
 
 start_points = vcat(
 	start_points,
 	Vector{Float64}[
 		[0.2 * cos(a), 0.0, -1 + 0.2 * sin(a)] for a in 0:2π/36:2π-2π/36
 	],
-)
+);
 
 fig, ax = plot_point_charges(N = 20, q = q, pos = pos, r = 0.05, arrow_idx = "z=0",
 	start_points = start_points)
 
-# limits!(ax, -1, 1, -1, 1, -2, 2)
+limits!(ax, -1, 1, -1, 1, -2, 2)
