@@ -98,3 +98,28 @@ function curvature(line_points, i)::Float32
 	κ = min(κ, 100.0)
 	return Float32(κ)
 end
+
+using CairoMakie
+using GeometryBasics
+using LinearAlgebra
+
+function plot_vector_field(func::Function, points::Vector{Point3f}; kwargs...)
+    fig = Figure()
+    ax = Axis3(fig[1, 1])
+
+    # Compute minimum pairwise distance
+    min_dist = minimum([norm(p1 .- p2) for p1 in points, p2 in points if p1 != p2])
+
+    # Evaluate vectors at each point
+    vectors = [Vec3f(func(p; kwargs...)) for p in points]
+    magnitudes = [norm(v) for v in vectors]
+
+    max_mag = maximum(magnitudes)
+    scale = max_mag == 0 ? 1.0 : min_dist / max_mag  # scale so max vector length ~ min_dist
+
+    # Scale vectors for visualization
+    directions = [v * scale for v in vectors]
+
+    arrows!(ax, points, directions, arrowsize=0.1, linewidth=1.5)
+    fig
+end
