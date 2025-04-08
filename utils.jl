@@ -99,7 +99,7 @@ function curvature(line_points, i)::Float32
 	return Float32(κ)
 end
 
-using CairoMakie
+using GLMakie#
 using GeometryBasics
 using LinearAlgebra
 
